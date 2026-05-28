@@ -148,3 +148,21 @@ Payload:
 ```ts
 { consumerId: string; producerId: string }
 ```
+
+## HTTP
+
+### GET /health
+```ts
+{ ok: true; service: string; rooms: number; turnEnabled: boolean }
+```
+
+### GET /api/ice-servers
+Requires header:
+```txt
+x-internal-api-secret: <INTERNAL_API_SECRET>
+```
+
+Response:
+```ts
+{ ok: true; iceServers: RTCIceServer[] }
+```

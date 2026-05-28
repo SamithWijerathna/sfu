@@ -32,7 +32,7 @@ export const config = {
 
   mediasoup: {
     listenIp: process.env.MEDIASOUP_LISTEN_IP || "0.0.0.0",
-    announcedIp: required("MEDIASOUP_ANNOUNCED_IP", "127.0.0.1"),
+    announcedIp: required("MEDIASOUP_ANNOUNCED_IP"),
     minPort: numberEnv("MEDIASOUP_MIN_PORT", 50000),
     maxPort: numberEnv("MEDIASOUP_MAX_PORT", 60000),
   },
@@ -45,7 +45,7 @@ export const config = {
     password: process.env.TURN_PASSWORD || "change_this_strong_turn_password",
   },
 
-  internalApiSecret: process.env.INTERNAL_API_SECRET || "",
+  internalApiSecret: required("INTERNAL_API_SECRET"),
 };
 
 export function getCorsOrigin() {

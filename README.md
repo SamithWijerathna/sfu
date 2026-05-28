@@ -20,15 +20,15 @@ You still need to set your own server public IP/domain and TURN password. Those 
 Recommended server:
 
 - Ubuntu 22.04 or 24.04
-- Node.js 20+
+- Node.js 22+
 - Public IPv4 address
 - Open firewall ports
 
 Recommended DNS:
 
 ```txt
-api.meet.yourdomain.com  -> your VPS public IP
-turn.yourdomain.com      -> your VPS public IP
+sfu.meet.cloudwave.asia   -> your VPS public IP
+turn.meet.cloudwave.asia  -> your VPS public IP
 ```
 
 ---
@@ -48,11 +48,12 @@ nano .env
 Edit these values:
 
 ```env
-FRONTEND_ORIGIN=https://meet.yourdomain.com,http://localhost:3000
+FRONTEND_ORIGIN=https://meet.cloudwave.asia,http://localhost:3000
 MEDIASOUP_ANNOUNCED_IP=YOUR_SERVER_PUBLIC_IP
-TURN_HOST=turn.yourdomain.com
+TURN_HOST=turn.meet.cloudwave.asia
 TURN_USERNAME=meetra
 TURN_PASSWORD=change_this_strong_turn_password
+INTERNAL_API_SECRET=CHANGE_THIS_INTERNAL_SECRET
 ```
 
 Install and build:
@@ -110,8 +111,8 @@ nano deploy/coturn/turnserver.conf
 Change:
 
 ```txt
-realm=turn.yourdomain.com
-server-name=turn.yourdomain.com
+realm=turn.meet.cloudwave.asia
+server-name=turn.meet.cloudwave.asia
 user=meetra:change_this_strong_turn_password
 external-ip=YOUR_SERVER_PUBLIC_IP
 ```
@@ -131,7 +132,7 @@ docker logs -f meetra-coturn
 Backend endpoint for frontend ICE servers:
 
 ```bash
-curl http://127.0.0.1:3850/api/ice-servers
+curl -H "x-internal-api-secret: CHANGE_THIS_INTERNAL_SECRET" http://127.0.0.1:3850/api/ice-servers
 ```
 
 ---
@@ -141,9 +142,9 @@ curl http://127.0.0.1:3850/api/ice-servers
 Copy example:
 
 ```bash
-sudo cp deploy/nginx/api.meet.example.conf /etc/nginx/sites-available/api.meet.yourdomain.com
-sudo nano /etc/nginx/sites-available/api.meet.yourdomain.com
-sudo ln -s /etc/nginx/sites-available/api.meet.yourdomain.com /etc/nginx/sites-enabled/
+sudo cp deploy/nginx/sfu.meet.cloudwave.asia.conf /etc/nginx/sites-available/sfu.meet.cloudwave.asia
+sudo nano /etc/nginx/sites-available/sfu.meet.cloudwave.asia
+sudo ln -s /etc/nginx/sites-available/sfu.meet.cloudwave.asia /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -153,7 +154,7 @@ Then add SSL using Certbot or your panel.
 Your frontend should connect Socket.IO to:
 
 ```txt
-https://api.meet.yourdomain.com
+https://sfu.meet.cloudwave.asia
 ```
 
 ---
@@ -205,6 +206,8 @@ Basic flow:
 9. resume consumer
 ```
 
+The frontend app should connect directly to the SFU Socket.IO endpoint. Your main API backend should stay responsible for auth, room access, and proxying ICE server config from `/api/ice-servers` using `x-internal-api-secret`.
+
 ---
 
 ## 8. Common problems
@@ -226,6 +229,7 @@ Set:
 ```env
 MEDIASOUP_LISTEN_IP=0.0.0.0
 MEDIASOUP_ANNOUNCED_IP=YOUR_SERVER_PUBLIC_IP
+INTERNAL_API_SECRET=CHANGE_THIS_INTERNAL_SECRET
 ```
 
 Then open:

@@ -28,4 +28,14 @@ const config = await fetch(`/api/meeting/${roomId}/sfu-config`).then(r => r.json
 const socket = io(config.socketUrl, { transports: ['websocket'] });
 ```
 
+When your API server fetches ICE servers from the SFU, send:
+
+```ts
+await fetch(`${process.env.SFU_URL}/api/ice-servers`, {
+  headers: {
+    'x-internal-api-secret': process.env.SFU_INTERNAL_SECRET!,
+  },
+});
+```
+
 Keep app auth/database on `api.meet.cloudwave.asia`. Keep media signaling on `sfu.meet.cloudwave.asia`.

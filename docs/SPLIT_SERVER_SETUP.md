@@ -73,7 +73,7 @@ ufw allow 3850/tcp
 ufw allow 3478/tcp
 ufw allow 3478/udp
 ufw allow 50000:60000/udp
-ufw allow 49160:49200/udp
+ufw allow 50000:60000/tcp
 ufw reload
 ```
 
@@ -87,7 +87,7 @@ systemctl reload nginx
 certbot --nginx -d sfu.meet.cloudwave.asia
 ```
 
-Do not proxy TURN through Nginx. `turn.meet.cloudwave.asia` uses raw TURN ports directly: 3478 UDP/TCP and optional 5349 TCP.
+Do not proxy TURN through Nginx. `turn.meet.cloudwave.asia` uses raw TURN ports directly: `3478` UDP/TCP and optional `5349` TCP.
 
 ## Start SFU
 
@@ -148,4 +148,4 @@ export async function getSfuIceServers() {
 }
 ```
 
-But the actual video/audio should still go browser ↔ SFU, not API server ↔ SFU.
+But the actual video/audio should still go browser <-> SFU, not API server <-> SFU.

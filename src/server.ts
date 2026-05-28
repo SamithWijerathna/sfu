@@ -23,6 +23,7 @@ import type { PeerInfo, ProducerSummary, RoomInfo } from "./types.js";
 
 let worker: Worker;
 const rooms = new Map<string, RoomInfo>();
+const allowedProducerSources = new Set(["camera", "mic", "screen"]);
 
 const mediaCodecs: RouterRtpCodecCapability[] = [
   {
@@ -168,6 +169,21 @@ function safeAck(callback: unknown, payload: unknown) {
   }
 }
 
+function getProducerSource(kind: MediaKind, payload: { appData?: Record<string, unknown>; source?: unknown }) {
+  const rawSource = payload.appData?.source ?? payload.source;
+  const source = typeof rawSource === "string" ? rawSource.trim().toLowerCase() : "";
+
+  if (source) {
+    if (!allowedProducerSources.has(source)) {
+      throw new Error("appData.source must be one of: camera, mic, screen");
+    }
+
+    return source;
+  }
+
+  return kind === "audio" ? "mic" : "camera";
+}
+
 function closePeer(socketId: string) {
   for (const [roomId, room] of rooms.entries()) {
     const peer = room.peers.get(socketId);
@@ -201,7 +217,6 @@ app.use(cors({ origin: getCorsOrigin(), credentials: true }));
 app.use(express.static("public"));
 
 function requireInternalSecret(req: express.Request, res: express.Response, next: express.NextFunction) {
-  if (!config.internalApiSecret) return next();
   const header = req.header("x-internal-api-secret");
   if (header === config.internalApiSecret) return next();
   res.status(401).json({ ok: false, error: "Unauthorized" });
@@ -217,7 +232,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/api/ice-servers", requireInternalSecret, (_req, res) => {
-  res.json({ iceServers: getIceServers() });
+  res.json({ ok: true, iceServers: getIceServers() });
 });
 
 app.get("/api/rooms", requireInternalSecret, (_req, res) => {
@@ -250,9 +265,10 @@ io.on("connection", (socket) => {
       const roomId = String(payload?.roomId || "").trim();
       if (!roomId) throw new Error("roomId is required");
 
-      const room = await getOrCreateRoom(roomId);
       const oldRoom = getRoomByPeer(socket.id);
-      if (oldRoom && oldRoom.roomId !== roomId) closePeer(socket.id);
+      if (oldRoom) closePeer(socket.id);
+
+      const room = await getOrCreateRoom(roomId);
 
       const peer: PeerInfo = {
         socketId: socket.id,
@@ -359,6 +375,8 @@ io.on("connection", (socket) => {
       const transport = peer.transports.get(transportId);
       if (!transport) throw new Error("Transport not found");
 
+      const source = getProducerSource(kind, payload ?? {});
+
       const producer = await transport.produce({
         kind,
         rtpParameters,
@@ -366,8 +384,8 @@ io.on("connection", (socket) => {
           socketId: socket.id,
           userId: peer.userId,
           displayName: peer.displayName,
-          source: payload?.appData?.source || payload?.source || "camera",
           ...payload?.appData,
+          source,
         },
       });
 
