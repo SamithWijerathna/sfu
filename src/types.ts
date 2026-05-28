@@ -4,7 +4,7 @@ import type {
   Router,
   RtpCapabilities,
   WebRtcTransport,
-} from "mediasoup/node/lib/types";
+} from "mediasoup/types";
 
 export type PeerInfo = {
   socketId: string;

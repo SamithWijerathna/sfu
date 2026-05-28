@@ -11,12 +11,12 @@ import type {
   Producer,
   Router,
   RtpCapabilities,
-  RtpCodecCapability,
   RtpParameters,
+  RouterRtpCodecCapability,
   TransportListenInfo,
   WebRtcTransport,
   Worker,
-} from "mediasoup/node/lib/types";
+} from "mediasoup/types";
 import { config, getCorsOrigin } from "./config.js";
 import { getIceServers } from "./ice.js";
 import type { PeerInfo, ProducerSummary, RoomInfo } from "./types.js";
@@ -24,7 +24,7 @@ import type { PeerInfo, ProducerSummary, RoomInfo } from "./types.js";
 let worker: Worker;
 const rooms = new Map<string, RoomInfo>();
 
-const mediaCodecs: RtpCodecCapability[] = [
+const mediaCodecs: RouterRtpCodecCapability[] = [
   {
     kind: "audio",
     mimeType: "audio/opus",
@@ -315,7 +315,7 @@ io.on("connection", (socket) => {
         }
       });
 
-      transport.on("close", () => {
+      transport.observer.on("close", () => {
         peer.transports.delete(transport.id);
       });
 
@@ -377,7 +377,7 @@ io.on("connection", (socket) => {
         peer.producers.delete(producer.id);
       });
 
-      producer.on("close", () => {
+      producer.observer.on("close", () => {
         peer.producers.delete(producer.id);
       });
 
