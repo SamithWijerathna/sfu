@@ -29,6 +29,8 @@ export type ProducerSummary = {
   socketId: string;
   userId?: string;
   displayName?: string;
+  userName?: string;
+  name?: string;
   kind: "audio" | "video";
   appData?: Record<string, unknown>;
 };

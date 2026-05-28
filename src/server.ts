@@ -113,6 +113,8 @@ function getExistingProducers(room: RoomInfo, requesterSocketId?: string): Produ
         socketId: peer.socketId,
         userId: peer.userId,
         displayName: peer.displayName,
+        userName: peer.displayName,
+        name: peer.displayName,
         kind: producer.kind,
         appData: producer.appData as Record<string, unknown>,
       });
@@ -199,6 +201,8 @@ function closePeer(socketId: string) {
       socketId,
       userId: peer.userId,
       displayName: peer.displayName,
+      userName: peer.displayName,
+      name: peer.displayName,
     });
 
     if (room.peers.size === 0) {
@@ -273,7 +277,14 @@ io.on("connection", (socket) => {
       const peer: PeerInfo = {
         socketId: socket.id,
         userId: payload?.userId ? String(payload.userId) : undefined,
-        displayName: payload?.displayName ? String(payload.displayName) : undefined,
+        displayName:
+          payload?.displayName
+            ? String(payload.displayName)
+            : payload?.userName
+              ? String(payload.userName)
+              : payload?.name
+                ? String(payload.name)
+                : undefined,
         roomId,
         rtpCapabilities: payload?.rtpCapabilities,
         transports: new Map(),
@@ -296,6 +307,8 @@ io.on("connection", (socket) => {
         socketId: socket.id,
         userId: peer.userId,
         displayName: peer.displayName,
+        userName: peer.displayName,
+        name: peer.displayName,
       });
     } catch (error) {
       safeAck(callback, { ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -404,6 +417,8 @@ io.on("connection", (socket) => {
         socketId: socket.id,
         userId: peer.userId,
         displayName: peer.displayName,
+        userName: peer.displayName,
+        name: peer.displayName,
         kind: producer.kind,
         appData: producer.appData,
       });
