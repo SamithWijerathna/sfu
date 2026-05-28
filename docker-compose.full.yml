@@ -1,0 +1,19 @@
+services:
+  sfu:
+    build: .
+    container_name: meetra-sfu
+    restart: unless-stopped
+    env_file:
+      - .env
+    network_mode: host
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: meetra-coturn
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+    volumes:
+      - ./deploy/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
