@@ -1,7 +1,8 @@
-import "dotenv/config";
 import express from "express";
 import http from "node:http";
 import cors from "cors";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import { Server } from "socket.io";
 import * as mediasoup from "mediasoup";
 import type {
@@ -216,6 +217,25 @@ function closePeer(socketId: string) {
 }
 
 const app = express();
+
+// Secure HTTP response headers
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false,
+  })
+);
+
+// Rate Limiter to protect SFU status & ICE config routes from spam/abuse
+const sfuRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 150,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { ok: false, error: "Too many requests from this IP. Please try again later." },
+});
+
+app.use(sfuRateLimiter);
 app.use(express.json({ limit: "1mb" }));
 app.use(cors({ origin: getCorsOrigin(), credentials: true }));
 app.use(express.static("public"));

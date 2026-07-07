@@ -1,0 +1,626 @@
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meetra SFU Audio Test</title>
+  <link rel="icon" href="data:," />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 0 16px;
+      background: #f6f7fb;
+      color: #111827;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    }
+    label {
+      display: block;
+      font-weight: 700;
+      margin-top: 12px;
+      margin-bottom: 6px;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+    button {
+      padding: 11px 16px;
+      border: 0;
+      border-radius: 10px;
+      background: #111827;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-top: 14px;
+    }
+    button.secondary {
+      background: #6b7280;
+    }
+    button.danger {
+      background: #b91c1c;
+    }
+    pre {
+      background: #0b1220;
+      color: #d1fae5;
+      padding: 14px;
+      border-radius: 12px;
+      min-height: 250px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .status {
+      font-weight: 700;
+      color: #047857;
+    }
+    .warning {
+      color: #b45309;
+      font-weight: 700;
+    }
+    audio,
+    video {
+      display: block;
+      width: 100%;
+      margin-top: 10px;
+      border-radius: 12px;
+    }
+    video {
+      background: #000;
+    }
+    .remote-item {
+      padding: 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 12px;
+      margin-top: 12px;
+      background: #f9fafb;
+    }
+  </style>
+</head>
+<body>
+  <h1>Meetra SFU Audio Test</h1>
+  <p>
+    Open this file in two browser tabs/devices with the same Room ID.
+    Click <b>Join + Publish Mic + Camera</b> on both. You should hear and see the other side.
+  </p>
+
+  <div class="card">
+    <label>SFU Socket URL</label>
+    <input id="sfuUrl" value="https://sfu.meet.cloudwave.asia" />
+
+    <label>ICE Servers URL</label>
+    <input id="iceUrl" placeholder="Optional. Leave blank for direct UDP testing, or use an app/API endpoint that allows this origin." />
+
+    <label>Optional SFU Internal Secret for direct local testing only</label>
+    <input id="internalSecret" placeholder="Leave empty. Only use if calling SFU /api/ice-servers directly." />
+
+    <label>Room ID</label>
+    <input id="roomId" value="audio-test-room" />
+
+    <label>User Name</label>
+    <input id="userName" value="Test User" />
+
+    <button id="joinBtn">Join + Publish Mic + Camera</button>
+    <button id="leaveBtn" class="danger">Leave</button>
+    <button id="clearBtn" class="secondary">Clear Log</button>
+
+    <p>Status: <span id="status" class="status">idle</span></p>
+  </div>
+
+  <div class="card">
+    <h3>Local Preview</h3>
+    <video id="localVideo" autoplay muted playsinline></video>
+  </div>
+
+  <div class="card">
+    <h3>Remote Media</h3>
+    <div id="remoteMedia"></div>
+  </div>
+
+  <div class="card">
+    <h3>Log</h3>
+    <pre id="log"></pre>
+  </div>
+
+  <script type="module">
+    import { io, mediasoupClient } from "./vendor/test-audio-deps.js";
+
+    const logEl = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+    const localVideoEl = document.getElementById("localVideo");
+    const remoteMediaEl = document.getElementById("remoteMedia");
+
+    const state = {
+      socket: null,
+      device: null,
+      sendTransport: null,
+      recvTransport: null,
+      localStream: null,
+      producers: new Map(),
+      consumers: new Map(),
+      remoteMedia: new Map(),
+      iceServers: [],
+      joined: false,
+      roomId: "",
+    };
+
+    function log(...args) {
+      const line = args.map((arg) => {
+        if (typeof arg === "string") return arg;
+        try { return JSON.stringify(arg, null, 2); } catch { return String(arg); }
+      }).join(" ");
+      console.log(...args);
+      logEl.textContent += `[${new Date().toLocaleTimeString()}] ${line}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function checkPageOrigin() {
+      if (window.location.origin === "http://127.0.0.1:3005") {
+        log("This page is running from http://127.0.0.1:3005.");
+        log("The live SFU currently allows http://localhost:3005 but rejects http://127.0.0.1:3005.");
+        log("Open this page as http://localhost:3005/test/test-audio.html or add http://127.0.0.1:3005 to FRONTEND_ORIGIN on the SFU and restart PM2 with updated env.");
+      }
+    }
+
+    function emitAck(event, data = {}, timeoutMs = 12000) {
+      return new Promise((resolve, reject) => {
+        if (!state.socket) return reject(new Error("Socket not connected"));
+
+        state.socket.timeout(timeoutMs).emit(event, data, (err, response) => {
+          if (err) return reject(new Error(`${event} timeout/no ack`));
+          if (!response) {
+            return reject(new Error(`${event} returned no response`));
+          }
+          if (response.ok === false) return reject(new Error(response.error || `${event} failed`));
+          resolve(response);
+        });
+      });
+    }
+
+    async function fetchIceServers() {
+      const url = document.getElementById("iceUrl").value.trim();
+      const secret = document.getElementById("internalSecret").value.trim();
+
+      if (!url) {
+        log("No ICE URL. Continuing without extra ICE servers.");
+        return [];
+      }
+
+      try {
+        const headers = {};
+        if (secret) headers["x-internal-api-secret"] = secret;
+
+        const res = await fetch(url, { headers });
+
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          log(`ICE fetch failed: ${res.status}`, body);
+          log("Continuing without ICE servers. Direct UDP may still work if firewall is open.");
+          return [];
+        }
+
+        const data = await res.json();
+        const iceServers = data.iceServers || [];
+        log("ICE servers loaded:", iceServers);
+        return iceServers;
+      } catch (error) {
+        log("ICE fetch error:", error.message);
+        log("Continuing without ICE servers.");
+        return [];
+      }
+    }
+
+    async function connectSocket() {
+      const sfuUrl = document.getElementById("sfuUrl").value.trim();
+
+      return new Promise((resolve, reject) => {
+        const socket = io(sfuUrl, {
+          transports: ["websocket"],
+          timeout: 12000,
+          reconnection: false,
+        });
+
+        state.socket = socket;
+
+        socket.on("connect", () => {
+          log("Socket connected:", socket.id);
+          resolve(socket);
+        });
+
+        socket.on("connect_error", (error) => {
+          log("Socket connect_error:", error.message);
+          reject(error);
+        });
+
+        socket.on("disconnect", (reason) => {
+          log("Socket disconnected:", reason);
+        });
+
+        socket.on("new-producer", async (data) => {
+          log("new-producer:", data);
+          try {
+            await consumeProducer(data.producerId, data.socketId, data.kind, data.appData);
+          } catch (error) {
+            log("Failed to consume new producer:", error.message);
+          }
+        });
+
+        socket.on("producer-closed", ({ producerId }) => {
+          log("producer-closed:", producerId);
+          removeConsumerByProducer(producerId);
+        });
+
+        socket.on("consumer-closed", ({ consumerId }) => {
+          log("consumer-closed:", consumerId);
+          removeConsumer(consumerId);
+        });
+
+        socket.on("peer-left", ({ socketId }) => {
+          log("peer-left:", socketId);
+          removeRemoteAudiosBySocket(socketId);
+        });
+
+        socket.onAny((event, ...args) => {
+          if (!["connect", "disconnect"].includes(event)) {
+            log("Socket event:", event, args[0] || "");
+          }
+        });
+      });
+    }
+
+    async function joinRoom() {
+      const roomId = document.getElementById("roomId").value.trim();
+      const userName = document.getElementById("userName").value.trim() || "Test User";
+
+      state.roomId = roomId;
+
+      try {
+        const response = await emitAck("join-room", {
+          roomId,
+          userId: `test-${Date.now()}`,
+          displayName: userName,
+        });
+
+        log("join-room response:", response);
+        return response;
+      } catch (error) {
+        log("join-room failed:", error.message);
+        throw error;
+      }
+    }
+
+    async function createTransport(direction) {
+      const response = await emitAck("create-transport", {
+        roomId: state.roomId,
+        direction,
+      });
+
+      const params = response.params || response;
+      log(`${direction} transport params:`, params);
+
+      if (direction === "send") {
+        const transport = state.device.createSendTransport({
+          ...params,
+          iceServers: state.iceServers,
+        });
+
+        transport.on("connect", async ({ dtlsParameters }, callback, errback) => {
+          try {
+            await emitAck("connect-transport", {
+              transportId: transport.id,
+              dtlsParameters,
+            });
+            callback();
+          } catch (error) {
+            errback(error);
+          }
+        });
+
+        transport.on("produce", async ({ kind, rtpParameters, appData }, callback, errback) => {
+          try {
+            const res = await emitAck("produce", {
+              transportId: transport.id,
+              kind,
+              rtpParameters,
+              appData,
+            });
+
+            callback({ id: res.producerId });
+          } catch (error) {
+            errback(error);
+          }
+        });
+
+        state.sendTransport = transport;
+        return transport;
+      }
+
+      const transport = state.device.createRecvTransport({
+        ...params,
+        iceServers: state.iceServers,
+      });
+
+      transport.on("connect", async ({ dtlsParameters }, callback, errback) => {
+        try {
+          await emitAck("connect-transport", {
+            transportId: transport.id,
+            dtlsParameters,
+          });
+          callback();
+        } catch (error) {
+          errback(error);
+        }
+      });
+
+      state.recvTransport = transport;
+      return transport;
+    }
+
+    async function publishLocalMedia() {
+      state.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "user",
+        },
+      });
+
+      localVideoEl.srcObject = state.localStream;
+
+      const audioTrack = state.localStream.getAudioTracks()[0];
+      const videoTrack = state.localStream.getVideoTracks()[0];
+
+      if (!audioTrack) {
+        throw new Error("No microphone audio track found");
+      }
+
+      const audioProducer = await state.sendTransport.produce({
+        track: audioTrack,
+        appData: {
+          source: "mic",
+          userName: document.getElementById("userName").value.trim() || "Test User",
+        },
+      });
+
+      state.producers.set(audioProducer.id, audioProducer);
+      log("Mic producer created:", audioProducer.id);
+
+      audioProducer.on("trackended", () => {
+        log("Mic track ended");
+      });
+
+      audioProducer.on("transportclose", () => {
+        log("Mic producer transport closed");
+      });
+
+      if (videoTrack) {
+        const videoProducer = await state.sendTransport.produce({
+          track: videoTrack,
+          appData: {
+            source: "camera",
+            userName: document.getElementById("userName").value.trim() || "Test User",
+          },
+        });
+
+        state.producers.set(videoProducer.id, videoProducer);
+        log("Camera producer created:", videoProducer.id);
+
+        videoProducer.on("trackended", () => {
+          log("Camera track ended");
+        });
+
+        videoProducer.on("transportclose", () => {
+          log("Camera producer transport closed");
+        });
+      } else {
+        log("No camera video track found. Continuing with audio only.");
+      }
+    }
+
+    async function consumeProducer(producerId, remoteSocketId = "unknown", kind = "audio", appData = {}) {
+      if (!state.recvTransport) {
+        await createTransport("recv");
+      }
+
+      if (Array.from(state.consumers.values()).some((item) => item.producerId === producerId)) {
+        log("Already consuming producer:", producerId);
+        return;
+      }
+
+      const response = await emitAck("consume", {
+        roomId: state.roomId,
+        producerId,
+        transportId: state.recvTransport.id,
+        rtpCapabilities: state.device.rtpCapabilities,
+      });
+
+      const params = response.params || response;
+
+      const consumer = await state.recvTransport.consume({
+        id: params.id,
+        producerId: params.producerId,
+        kind: params.kind,
+        rtpParameters: params.rtpParameters,
+      });
+
+      state.consumers.set(consumer.id, {
+        consumer,
+        producerId,
+        remoteSocketId,
+      });
+
+      const stream = new MediaStream([consumer.track]);
+      const wrapper = document.createElement("div");
+      wrapper.className = "remote-item";
+      wrapper.dataset.consumerId = consumer.id;
+
+      const label = document.createElement("div");
+      label.dataset.consumerId = consumer.id;
+      label.innerHTML = `<b>Remote ${consumer.kind}</b> producer=${producerId} socket=${remoteSocketId} source=${appData?.source || kind}`;
+
+      const mediaEl = document.createElement(consumer.kind === "video" ? "video" : "audio");
+      mediaEl.autoplay = true;
+      mediaEl.controls = true;
+      mediaEl.playsInline = true;
+      mediaEl.srcObject = stream;
+      mediaEl.dataset.consumerId = consumer.id;
+      mediaEl.dataset.producerId = producerId;
+      mediaEl.dataset.socketId = remoteSocketId;
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(mediaEl);
+      remoteMediaEl.appendChild(wrapper);
+
+      state.remoteMedia.set(consumer.id, { wrapper, mediaEl });
+
+      await emitAck("resume-consumer", {
+        consumerId: consumer.id,
+      });
+
+      try {
+        await mediaEl.play();
+      } catch (error) {
+        log("Media autoplay blocked. Click the play button manually.", error.message);
+      }
+
+      consumer.on("transportclose", () => removeConsumer(consumer.id));
+      consumer.on("trackended", () => removeConsumer(consumer.id));
+
+      log("Consumer created/resumed:", consumer.id, "producer:", producerId);
+    }
+
+    function removeConsumer(consumerId) {
+      const item = state.consumers.get(consumerId);
+      if (item) {
+        try { item.consumer.close(); } catch {}
+        state.consumers.delete(consumerId);
+      }
+
+      const remote = state.remoteMedia.get(consumerId);
+      if (remote) {
+        remote.wrapper.remove();
+        state.remoteMedia.delete(consumerId);
+      }
+    }
+
+    function removeConsumerByProducer(producerId) {
+      for (const [consumerId, item] of state.consumers.entries()) {
+        if (item.producerId === producerId) removeConsumer(consumerId);
+      }
+    }
+
+    function removeRemoteAudiosBySocket(socketId) {
+      for (const [consumerId, item] of state.consumers.entries()) {
+        if (item.remoteSocketId === socketId) removeConsumer(consumerId);
+      }
+    }
+
+    async function startTest() {
+      try {
+        if (state.joined) {
+          log("Already joined. Leave first if you want a fresh session.");
+          return;
+        }
+
+        setStatus("connecting...");
+        log("Starting SFU audio test");
+
+        state.iceServers = await fetchIceServers();
+
+        await connectSocket();
+
+        const joinResponse = await joinRoom();
+
+        state.device = new mediasoupClient.Device();
+        await state.device.load({
+          routerRtpCapabilities: joinResponse.routerRtpCapabilities,
+        });
+
+        log("mediasoup Device loaded");
+
+        await createTransport("send");
+        await createTransport("recv");
+
+        await publishLocalMedia();
+
+        const existingProducers = joinResponse.existingProducers || [];
+        log("Existing producers:", existingProducers);
+
+        for (const producer of existingProducers) {
+          await consumeProducer(producer.producerId, producer.socketId, producer.kind, producer.appData);
+        }
+
+        state.joined = true;
+        setStatus("joined and publishing mic + camera");
+        log("Test ready. Open another tab/device with the same Room ID.");
+      } catch (error) {
+        setStatus("error");
+        log("START FAILED:", error.message);
+      }
+    }
+
+    function leave() {
+      log("Leaving...");
+
+      for (const producer of state.producers.values()) {
+        try { producer.close(); } catch {}
+      }
+      try { state.sendTransport?.close(); } catch {}
+      try { state.recvTransport?.close(); } catch {}
+
+      for (const consumerId of Array.from(state.consumers.keys())) {
+        removeConsumer(consumerId);
+      }
+
+      if (state.localStream) {
+        state.localStream.getTracks().forEach((track) => track.stop());
+      }
+
+      if (state.socket) {
+        state.socket.disconnect();
+      }
+
+      state.socket = null;
+      state.device = null;
+      state.sendTransport = null;
+      state.recvTransport = null;
+      state.localStream = null;
+      state.producers = new Map();
+      state.joined = false;
+      localVideoEl.srcObject = null;
+
+      setStatus("left");
+    }
+
+    document.getElementById("joinBtn").addEventListener("click", startTest);
+    document.getElementById("leaveBtn").addEventListener("click", leave);
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      logEl.textContent = "";
+    });
+
+    checkPageOrigin();
+    window.addEventListener("beforeunload", leave);
+  </script>
+</body>
+</html>

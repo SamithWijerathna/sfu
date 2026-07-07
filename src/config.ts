@@ -1,4 +1,11 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import path from "path";
+
+const nodeEnv = process.env.NODE_ENV || "development";
+
+dotenv.config({ path: path.resolve(process.cwd(), `.env.${nodeEnv}`) });
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 function required(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
@@ -24,15 +31,15 @@ function booleanEnv(name: string, fallback: boolean): boolean {
 
 export const config = {
   port: numberEnv("PORT", 3850),
-  nodeEnv: process.env.NODE_ENV || "development",
-  frontendOrigins: (process.env.FRONTEND_ORIGIN || "http://localhost:3000")
+  nodeEnv,
+  frontendOrigins: (process.env.FRONTEND_ORIGIN || "http://localhost:3005")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean),
 
   mediasoup: {
     listenIp: process.env.MEDIASOUP_LISTEN_IP || "0.0.0.0",
-    announcedIp: required("MEDIASOUP_ANNOUNCED_IP"),
+    announcedIp: process.env.NODE_ENV === "production" ? required("MEDIASOUP_ANNOUNCED_IP") : (process.env.MEDIASOUP_ANNOUNCED_IP || "127.0.0.1"),
     minPort: numberEnv("MEDIASOUP_MIN_PORT", 50000),
     maxPort: numberEnv("MEDIASOUP_MAX_PORT", 60000),
   },
@@ -45,7 +52,7 @@ export const config = {
     password: process.env.TURN_PASSWORD || "change_this_strong_turn_password",
   },
 
-  internalApiSecret: required("INTERNAL_API_SECRET"),
+  internalApiSecret: process.env.NODE_ENV === "production" ? required("INTERNAL_API_SECRET") : (process.env.INTERNAL_API_SECRET || "dev_internal_secret"),
 };
 
 export function getCorsOrigin() {

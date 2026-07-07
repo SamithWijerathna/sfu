@@ -48,7 +48,7 @@ nano .env
 Edit these values:
 
 ```env
-FRONTEND_ORIGIN=https://meet.cloudwave.asia,http://localhost:3000
+FRONTEND_ORIGIN=https://meet.cloudwave.asia,http://localhost:3005
 MEDIASOUP_ANNOUNCED_IP=YOUR_SERVER_PUBLIC_IP
 TURN_HOST=turn.meet.cloudwave.asia
 TURN_USERNAME=meetra
